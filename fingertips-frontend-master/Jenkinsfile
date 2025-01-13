@@ -1,0 +1,62 @@
+pipeline {
+    agent any
+    
+    environment {
+        ECR_REPO = "058264264060.dkr.ecr.us-east-1.amazonaws.com/fingertips-frontend"
+        SERVICE_NAME = "fingertips-frontend"
+        STACK_NAME = "fingertips-stack"
+        APPROVAL_EMAIL = "fingertips.root@gmail.com"
+    }
+    stages {
+        stage("Docker Build") {
+            steps {
+                sh "docker build -t 058264264060.dkr.ecr.us-east-1.amazonaws.com/fingertips-frontend:fingertips-frontend-${BUILD_NUMBER} ."
+            }
+        }
+        stage("ECR Push") {
+            steps {
+                sh "docker login -u AWS -p \$(aws ecr get-login-password --region us-east-1) 058264264060.dkr.ecr.us-east-1.amazonaws.com/fingertips-frontend"
+                sh "docker push 058264264060.dkr.ecr.us-east-1.amazonaws.com/fingertips-frontend:fingertips-frontend-${BUILD_NUMBER}"
+            }
+         }
+        // stage("Approval") {
+        //     steps {
+        //         script {
+        //             def jobName = env.JOB_NAME
+        //             def jobUrl = "${JOB_URL}"
+        //             def approvalMessage = """
+        //                 Hi,
+                        
+        //                 This pipeline (${jobName}) requires your approval for deployment. Please log in to Jenkins to approve.
+                        
+        //                 Job URL: ${jobUrl}
+
+        //                 You have 15 minutes to approve.
+                        
+        //                 Thanks,
+        //                 Admin
+        //             """
+        //             emailext body: approvalMessage.trim(), subject: "Pipeline Approval - ${jobName}", to: "${APPROVAL_EMAIL}"
+
+        //             timeout(time: 15, unit: "MINUTES") {
+        //                 input message: 'Do you want to approve the deployment?', ok: 'Yes'
+        //             }
+        //         }
+        //     }
+        // }
+        stage("Deployment") {
+            steps {
+                script {
+                    def serviceExists = sh(script: "docker service ls --filter name=${SERVICE_NAME} | wc -l", returnStdout: true).trim()
+                    if (serviceExists.toInteger() > 1) {
+                        // Service already exists, update it
+                        sh "docker service update --image ${ECR_REPO}:fingertips-frontend-${BUILD_NUMBER} ${SERVICE_NAME}"
+                    } else {
+                        // Service doesn't exist, create it
+                        sh "docker service create --name ${SERVICE_NAME} --replicas 1 -p 3000:3000 ${ECR_REPO}:fingertips-frontend-${BUILD_NUMBER}"
+                    }
+                }
+            }
+        }
+    }
+}
